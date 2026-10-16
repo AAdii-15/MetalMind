@@ -19,6 +19,7 @@ dependencies = [
     "lxml>=4.9",
     "feedparser>=6.0",
     "vaderSentiment>=3.3",
+    "yfinance>=0.2.40",
 ]
 
 [project.optional-dependencies]

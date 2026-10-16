@@ -63,3 +63,21 @@ def test_collect_appends_to_archive(tmp_path, monkeypatch):
     assert new == 1 and len(archive) == 1
     archive, new = news.collect("copper", tmp_path)          # same items again: nothing new
     assert new == 0 and len(news.load_archive("copper", tmp_path)) == 1
+
+
+def test_backfill_queries_each_window_and_archives(tmp_path, monkeypatch):
+    from datetime import date
+
+    urls = []
+    parsed = feedparser.parse(RSS)
+
+    def fake_parse(url, agent=None):
+        urls.append(url)
+        return parsed
+
+    monkeypatch.setattr(news.feedparser, "parse", fake_parse)
+    archive, new = news.backfill("copper", date(2025, 3, 1), date(2025, 3, 22), window_days=7,
+                                 pause=0, data_dir=tmp_path, progress=None)
+    assert len(urls) == 3                                   # three 7-day windows
+    assert "after%3A2025-03-01" in urls[0] and "before%3A2025-03-08" in urls[0]
+    assert new == 1 and len(news.load_archive("copper", tmp_path)) == 1

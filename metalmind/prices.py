@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from metalmind.config import DATA_DIR, get_metal
+from metalmind.config import DATA_DIR, FX_TICKER, get_metal
 
 log = logging.getLogger(__name__)
 
@@ -77,13 +77,56 @@ def parse_bankbazaar(html: str) -> pd.Series:
 
 def fetch_bankbazaar(metal: str, timeout: float = 20) -> pd.Series:
     """Scrape the recent daily price table (INR per kg) for a metal from BankBazaar."""
-    url = BANKBAZAAR_URL.format(slug=get_metal(metal).bankbazaar_slug)
+    slug = get_metal(metal).bankbazaar_slug
+    if not slug:
+        raise PriceDataError(f"BankBazaar has no page for {metal}")
+    url = BANKBAZAAR_URL.format(slug=slug)
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=timeout)
         resp.raise_for_status()
     except requests.RequestException as exc:
         raise PriceDataError(f"Could not download {url}: {exc}") from exc
     return parse_bankbazaar(resp.text)
+
+
+def _yahoo_close(ticker: str, start: str) -> pd.Series:
+    try:
+        import yfinance as yf
+    except ImportError as exc:
+        raise PriceDataError("yfinance is not installed: pip install yfinance") from exc
+    try:
+        hist = yf.Ticker(ticker).history(start=start, auto_adjust=False)
+    except Exception as exc:  # yfinance raises many network/parse error types
+        raise PriceDataError(f"Yahoo Finance download failed for {ticker}: {exc}") from exc
+    if hist is None or hist.empty or "Close" not in hist:
+        raise PriceDataError(f"Yahoo Finance returned no data for {ticker}")
+    close = hist["Close"].astype(float)
+    idx = pd.DatetimeIndex(close.index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    close.index = idx.normalize()
+    close = close[close > 0]
+    return close[~close.index.duplicated(keep="last")].sort_index()
+
+
+def fetch_yahoo(metal: str, start: str = "2020-01-01") -> pd.Series:
+    """International benchmark futures converted to INR per kg using the daily USD/INR rate.
+
+    Note: this is the global benchmark in rupees, not the Indian domestic
+    (MCX / dealer) price, which adds import duty, freight and local premiums.
+    """
+    spec = get_metal(metal)
+    if not spec.yahoo_ticker:
+        raise PriceDataError(f"No Yahoo Finance benchmark configured for {metal}")
+    usd = _yahoo_close(spec.yahoo_ticker, start)
+    fx = _yahoo_close(FX_TICKER, start)
+    fx = fx.reindex(usd.index.union(fx.index)).sort_index().ffill().reindex(usd.index)
+    inr_per_kg = (usd * fx / spec.kg_per_unit).dropna()
+    inr_per_kg.name = "price"
+    inr_per_kg.index.name = "date"
+    if len(inr_per_kg) < 2:
+        raise PriceDataError(f"Not enough Yahoo Finance data for {metal}")
+    return inr_per_kg
 
 
 def archive_path(metal: str, data_dir: Path = DATA_DIR) -> Path:
@@ -104,14 +147,27 @@ def update_archive(metal: str, new: pd.Series, data_dir: Path = DATA_DIR) -> pd.
     return merged
 
 
-def get_price_history(metal: str, csv: str | Path | None = None, data_dir: Path = DATA_DIR) -> tuple[pd.Series, str]:
-    """Return (price series, source description).
+def get_price_history(
+    metal: str,
+    csv: str | Path | None = None,
+    data_dir: Path = DATA_DIR,
+    source: str = "yahoo",
+    start: str = "2020-01-01",
+) -> tuple[pd.Series, str]:
+    """Return (price series in INR/kg, source description).
 
-    Priority: an explicit CSV, otherwise a fresh BankBazaar scrape merged into
-    the local archive, otherwise the archive alone.
+    An explicit CSV always wins. Otherwise `source` selects:
+      yahoo      - international benchmark futures x USD/INR (long history, default)
+      bankbazaar - Indian retail rates scraped from BankBazaar (short recent window),
+                   merged into a local archive that grows with each run
     """
     if csv:
         return load_csv(csv), f"CSV file {csv}"
+    if source == "yahoo":
+        spec = get_metal(metal)
+        return fetch_yahoo(metal, start), f"Yahoo Finance: {spec.benchmark} x USD/INR"
+    if source != "bankbazaar":
+        raise ValueError(f"Unknown price source '{source}' (use yahoo or bankbazaar)")
     try:
         scraped = fetch_bankbazaar(metal)
         merged = update_archive(metal, scraped, data_dir)

@@ -11,14 +11,15 @@ from __future__ import annotations
 import calendar
 import logging
 import re
-from datetime import datetime, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import feedparser
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-from metalmind.config import DATA_DIR, feeds_for, get_metal
+from metalmind.config import DATA_DIR, feeds_for, get_metal, google_news_feed
 
 log = logging.getLogger(__name__)
 
@@ -95,6 +96,13 @@ def deduplicate(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns="_key").reset_index(drop=True)
 
 
+def _merge(old: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
+    parts = [df for df in (old, fresh) if not df.empty]
+    if not parts:
+        return pd.DataFrame(columns=COLUMNS)
+    return deduplicate(pd.concat(parts, ignore_index=True))
+
+
 def archive_path(metal: str, data_dir: Path = DATA_DIR) -> Path:
     return data_dir / "news" / f"{get_metal(metal).name}.csv"
 
@@ -113,7 +121,49 @@ def collect(metal: str, data_dir: Path = DATA_DIR, feeds: list[str] | None = Non
     """Fetch fresh articles, merge them into the archive, return (archive, new_count)."""
     old = load_archive(metal, data_dir)
     fresh = fetch(metal, feeds)
-    merged = deduplicate(pd.concat([old, fresh], ignore_index=True)) if not fresh.empty else old
+    merged = _merge(old, fresh)
+    path = archive_path(metal, data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(path, index=False)
+    return merged, len(merged) - len(old)
+
+
+def backfill(
+    metal: str,
+    since: date,
+    until: date | None = None,
+    window_days: int = 7,
+    pause: float = 1.5,
+    data_dir: Path = DATA_DIR,
+    progress=print,
+) -> tuple[pd.DataFrame, int]:
+    """Rebuild historical headlines with date-bounded Google News searches.
+
+    Each request asks for "<query> after:<start> before:<end>" for one window,
+    so years of history can be collected week by week. Results are merged into
+    the same archive used by `collect`.
+    """
+    spec = get_metal(metal)
+    until = until or date.today()
+    old = load_archive(metal, data_dir)
+    frames, start, n_windows = [], since, 0
+    while start < until:
+        end = min(start + timedelta(days=window_days), until)
+        query = f"{spec.news_query} after:{start:%Y-%m-%d} before:{end:%Y-%m-%d}"
+        feed = feedparser.parse(google_news_feed(query), agent="Mozilla/5.0 (MetalMind research tool)")
+        if feed.get("bozo") and not feed.entries:
+            log.warning("Window %s..%s failed: %s", start, end, feed.get("bozo_exception"))
+        else:
+            df = parse_feed(feed, metal, source="google-news-backfill")
+            frames.append(df)
+            n_windows += 1
+            if progress and n_windows % 10 == 0:
+                progress(f"  {metal}: up to {end:%d %b %Y}, {sum(len(f) for f in frames)} relevant articles so far")
+        start = end
+        time.sleep(pause)
+    frames = [f for f in frames if not f.empty]
+    fresh = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=COLUMNS)
+    merged = _merge(old, fresh)
     path = archive_path(metal, data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(path, index=False)

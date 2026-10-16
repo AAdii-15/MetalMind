@@ -14,10 +14,13 @@ OUTPUT_DIR = Path("outputs")
 @dataclass(frozen=True)
 class MetalSpec:
     name: str
-    bankbazaar_slug: str
+    bankbazaar_slug: str | None
     include: tuple[str, ...]          # regexes; any match marks an article relevant
     exclude: tuple[str, ...] = ()     # regexes; any match rejects the article
     news_query: str = ""              # search phrase for the Google News RSS feed
+    yahoo_ticker: str | None = None   # international benchmark (USD) on Yahoo Finance
+    kg_per_unit: float = 1.0          # kilograms in the ticker's price unit
+    benchmark: str = ""               # human-readable benchmark name
 
     def matches(self, text: str) -> bool:
         text = text.lower()
@@ -34,17 +37,26 @@ METALS: dict[str, MetalSpec] = {
         "copper", "copper",
         include=(r"\bcopper\b",),
         news_query="copper price",
+        yahoo_ticker="HG=F", kg_per_unit=0.45359237, benchmark="COMEX copper futures (USD/lb)",
     ),
     "aluminium": MetalSpec(
         "aluminium", "aluminium",
         include=(r"\balumini?um\b", r"\bbauxite\b", r"\balumina\b"),
         news_query="aluminium price",
+        yahoo_ticker="ALI=F", kg_per_unit=1000.0, benchmark="COMEX aluminium futures (USD/tonne)",
     ),
     "steel": MetalSpec(
         "steel", "steel",
         include=(r"\bsteel\b", r"\biron ore\b", r"\bpig iron\b", r"\bsponge iron\b"),
         exclude=(r"\bstainless steel (bottle|utensil|cookware)s?\b",),
         news_query="steel price India",
+        yahoo_ticker="HRC=F", kg_per_unit=907.18474, benchmark="US Midwest HRC steel futures (USD/short ton)",
+    ),
+    "iron_ore": MetalSpec(
+        "iron_ore", None,
+        include=(r"\biron[ -]ore\b", r"\bnmdc\b"),
+        news_query="iron ore price",
+        yahoo_ticker="TIO=F", kg_per_unit=1000.0, benchmark="SGX iron ore 62% Fe futures (USD/tonne)",
     ),
     "lead": MetalSpec(
         "lead", "lead",
@@ -85,8 +97,11 @@ def feeds_for(metal: str) -> list[str]:
     return feeds
 
 
+FX_TICKER = "USDINR=X"
+
+
 def get_metal(metal: str) -> MetalSpec:
-    key = metal.strip().lower().replace("aluminum", "aluminium")
+    key = metal.strip().lower().replace("aluminum", "aluminium").replace(" ", "_").replace("-", "_")
     if key not in METALS:
         raise ValueError(f"Unsupported metal '{metal}'. Choose from: {', '.join(METALS)}")
     return METALS[key]

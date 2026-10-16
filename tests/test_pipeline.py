@@ -76,7 +76,7 @@ def test_no_synthetic_fallback(tmp_path, monkeypatch):
 
     monkeypatch.setattr(prices_mod, "fetch_bankbazaar", fail)
     with pytest.raises(prices_mod.PriceDataError, match="--prices-csv"):
-        prices_mod.get_price_history("copper", data_dir=tmp_path)
+        prices_mod.get_price_history("copper", data_dir=tmp_path, source="bankbazaar")
 
 
 def test_cli_end_to_end(tmp_path, price_csv, capsys):
