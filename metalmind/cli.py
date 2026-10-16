@@ -53,7 +53,7 @@ def cmd_collect(args) -> int:
 def cmd_backfill(args) -> int:
     since = date.fromisoformat(args.since)
     for metal in args.metal or [m for m in METALS if METALS[m].news_query]:
-        print(f"Backfilling {metal} news from {since:%d %b %Y} ({args.window_days}-day windows)...")
+        print(f"Backfilling {metal} news from {since:%d %b %Y} ({args.window_days}-day windows); safe to stop and re-run")
         archive, new = news.backfill(metal, since, window_days=args.window_days, pause=args.pause,
                                      data_dir=Path(args.data_dir))
         days = archive["date_ist"].dt.normalize().nunique() if not archive.empty else 0
@@ -100,7 +100,7 @@ def cmd_doctor(args) -> int:
     check("Yahoo USD/INR", fx)
     for m in ("copper", "aluminium", "steel", "iron_ore"):
         check(f"Yahoo {m}", lambda m=m: yahoo(m))
-    check("BankBazaar copper", bankbazaar)
+    check("BankBazaar copper (legacy v1 source)", bankbazaar)
     for url in GENERAL_FEEDS:
         check(f"RSS {url.split('/')[2]}", lambda url=url: feed(url))
     check("Google News (today)", lambda: feed(google_news_feed("copper price")))
@@ -109,7 +109,7 @@ def cmd_doctor(args) -> int:
     width = max(len(r[0]) for r in rows)
     for name, status, detail in rows:
         print(f"{name:<{width}}  {status:<4}  {detail}")
-    return 0 if all(r[1] == "OK" for r in rows) else 2
+    return 0 if all(r[1] == "OK" for r in rows if "legacy" not in r[0]) else 2
 
 
 def cmd_evaluate(args) -> int:
@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--metal", nargs="*", choices=list(METALS), help="default: all metals")
     b.add_argument("--since", default="2021-01-01", help="start date YYYY-MM-DD")
     b.add_argument("--window-days", type=int, default=7)
-    b.add_argument("--pause", type=float, default=1.5, help="seconds between requests (be polite)")
+    b.add_argument("--pause", type=float, default=1.0, help="seconds between requests (be polite)")
     b.set_defaults(func=cmd_backfill)
 
     c = sub.add_parser("collect-news", help="fetch today's headlines into the news archive")

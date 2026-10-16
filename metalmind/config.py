@@ -18,6 +18,7 @@ class MetalSpec:
     include: tuple[str, ...]          # regexes; any match marks an article relevant
     exclude: tuple[str, ...] = ()     # regexes; any match rejects the article
     news_query: str = ""              # search phrase for the Google News RSS feed
+    backfill_queries: tuple[str, ...] = ()  # extra historical searches (supply-side news)
     yahoo_ticker: str | None = None   # international benchmark (USD) on Yahoo Finance
     kg_per_unit: float = 1.0          # kilograms in the ticker's price unit
     benchmark: str = ""               # human-readable benchmark name
@@ -37,12 +38,14 @@ METALS: dict[str, MetalSpec] = {
         "copper", "copper",
         include=(r"\bcopper\b",),
         news_query="copper price",
+        backfill_queries=("copper mine OR smelter OR supply",),
         yahoo_ticker="HG=F", kg_per_unit=0.45359237, benchmark="COMEX copper futures (USD/lb)",
     ),
     "aluminium": MetalSpec(
         "aluminium", "aluminium",
         include=(r"\balumini?um\b", r"\bbauxite\b", r"\balumina\b"),
         news_query="aluminium price",
+        backfill_queries=("aluminium smelter OR bauxite OR alumina",),
         yahoo_ticker="ALI=F", kg_per_unit=1000.0, benchmark="COMEX aluminium futures (USD/tonne)",
     ),
     "steel": MetalSpec(
@@ -50,12 +53,14 @@ METALS: dict[str, MetalSpec] = {
         include=(r"\bsteel\b", r"\biron ore\b", r"\bpig iron\b", r"\bsponge iron\b"),
         exclude=(r"\bstainless steel (bottle|utensil|cookware)s?\b",),
         news_query="steel price India",
+        backfill_queries=("steel mill OR steel output OR steel demand India",),
         yahoo_ticker="HRC=F", kg_per_unit=907.18474, benchmark="US Midwest HRC steel futures (USD/short ton)",
     ),
     "iron_ore": MetalSpec(
         "iron_ore", None,
         include=(r"\biron[ -]ore\b", r"\bnmdc\b"),
         news_query="iron ore price",
+        backfill_queries=("iron ore mine OR iron ore supply OR NMDC",),
         yahoo_ticker="TIO=F", kg_per_unit=1000.0, benchmark="SGX iron ore 62% Fe futures (USD/tonne)",
     ),
     "lead": MetalSpec(

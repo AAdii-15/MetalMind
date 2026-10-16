@@ -78,6 +78,11 @@ def test_backfill_queries_each_window_and_archives(tmp_path, monkeypatch):
     monkeypatch.setattr(news.feedparser, "parse", fake_parse)
     archive, new = news.backfill("copper", date(2025, 3, 1), date(2025, 3, 22), window_days=7,
                                  pause=0, data_dir=tmp_path, progress=None)
-    assert len(urls) == 3                                   # three 7-day windows
+    assert len(urls) == 6                                   # three 7-day windows x two queries
     assert "after%3A2025-03-01" in urls[0] and "before%3A2025-03-08" in urls[0]
     assert new == 1 and len(news.load_archive("copper", tmp_path)) == 1
+    # a second run resumes: every window is already done, so nothing is fetched
+    urls.clear()
+    news.backfill("copper", date(2025, 3, 1), date(2025, 3, 22), window_days=7,
+                  pause=0, data_dir=tmp_path, progress=None)
+    assert urls == []
