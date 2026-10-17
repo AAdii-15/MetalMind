@@ -9,3 +9,4 @@ feedparser>=6.0
 vaderSentiment>=3.3
 pytest>=7
 yfinance>=0.2.40
+streamlit>=1.46

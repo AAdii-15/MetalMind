@@ -32,13 +32,17 @@ class Backtest:
 
 
 def default_models(with_news: bool) -> dict[str, ModelFactory]:
+    """Baselines plus Ridge regression (best in the 2026 experiment) and Random Forest."""
+    price = features.PRICE_FEATURES
     models: dict[str, ModelFactory] = {
         NAIVE: NaiveModel,
         DRIFT: DriftModel,
-        "Random Forest: price only": lambda: FeatureModel("forest", features.PRICE_FEATURES, "Random Forest: price only"),
+        "Ridge regression: price only": lambda: FeatureModel("ridge", price, "Ridge regression: price only"),
+        "Random Forest: price only": lambda: FeatureModel("forest", price, "Random Forest: price only"),
     }
     if with_news:
-        cols = features.PRICE_FEATURES + features.NEWS_FEATURES
+        cols = price + features.NEWS_FEATURES
+        models["Ridge regression: price + news"] = lambda: FeatureModel("ridge", cols, "Ridge regression: price + news")
         models["Random Forest: price + news"] = lambda: FeatureModel("forest", cols, "Random Forest: price + news")
     return models
 

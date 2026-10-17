@@ -41,8 +41,11 @@ metalmind doctor                                   # which data sources work fro
 metalmind backfill-news --since 2021-01-01         # rebuild ~5 years of headlines (resumable)
 metalmind experiment                               # full study: 4 metals x 11 models x 2 horizons
 metalmind forecast --metal copper                  # 10-day forecast, CSV and chart in outputs/
+metalmind dashboard                                # interactive dashboard in the browser
 metalmind collect-news                             # run daily to keep the news archive current
 ```
+
+**Dashboard.** `metalmind dashboard` opens a browser app. You pick a metal and see four things: the latest benchmark price in ₹/kg; a forecast with its backtested 95% error band; the latest headlines with sentiment scores and event tags; and a walk-forward comparison of every model against the naive baseline. If `metalmind experiment` has been run, it also shows the full research findings. *Offline mode* in the sidebar uses the last saved price download, so a demo works without internet.
 
 **Price sources.** The default is `--source yahoo`: international benchmark futures (COMEX copper, COMEX aluminium, US HRC steel, SGX iron ore 62% Fe) converted to ₹/kg with the daily USD/INR rate, giving 5+ years of daily history. These are global benchmarks in rupees, not Indian dealer prices, which add duty, freight and premiums but move with them. You can also pass your own history with `--prices-csv` (a date column and a price column; `2025-07-15` and `15/07/2025` formats both work). BankBazaar, the v1 source, no longer serves its price pages.
 
@@ -79,6 +82,7 @@ metalmind/
   experiment.py  the full research grid, event study and report
   forecast.py    recursive forecast with error band
   plotting.py    forecast and backtest charts
+  dashboard.py   Streamlit dashboard
   cli.py         command-line interface
 tests/           offline tests (synthetic fixtures; no network needed)
 notebooks/       MetalMind_prototype_2025.ipynb: the original Colab prototype
@@ -110,7 +114,6 @@ The tests check keyword matching, de-duplication, weekend-news alignment and the
 - Finance-tuned sentiment (FinBERT) and event tags (supply disruption, policy, macro releases)
 - Longer histories from exchange data (MCX / LME) and INR/USD as a feature
 - Gradient boosting and sequence models, compared in the same walk-forward framework
-- Simple dashboard for procurement teams
 
 ## Author
 

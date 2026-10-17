@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from metalmind import features
-from metalmind.models import ForestModel
+from metalmind.models import FeatureModel
 
 
 def _next_dates(index: pd.DatetimeIndex, horizon: int) -> pd.DatetimeIndex:
@@ -21,10 +21,12 @@ def forecast(
     sentiment: pd.DataFrame | None = None,
     horizon: int = 10,
     residual_std: float | None = None,
+    kind: str = "ridge",
 ) -> pd.DataFrame:
     """Forecast `horizon` future prices.
 
-    The model is trained on all available history. Each step feeds the
+    The model (Ridge regression by default, the most accurate learned model in
+    the walk-forward experiment) is trained on all available history. Each step feeds the
     previous prediction back in as the latest price. News for future days is
     unknown, so the most recent day's sentiment is carried forward.
 
@@ -34,7 +36,7 @@ def forecast(
     """
     cols = features.PRICE_FEATURES + (features.NEWS_FEATURES if sentiment is not None else [])
     X, y = features.build(prices, sentiment)
-    model = ForestModel(cols, "Random Forest").fit(X, y)
+    model = FeatureModel(kind, cols).fit(X, y)
 
     future = _next_dates(prices.index, horizon)
     path = prices.astype(float).copy()
@@ -53,5 +55,4 @@ def forecast(
         band = 1.96 * residual_std * np.sqrt(k) if residual_std else np.nan
         rows.append({"date": day, "forecast": price, "lower": price * (1 - band), "upper": price * (1 + band)})
     out = pd.DataFrame(rows).set_index("date")
-    out.attrs["feature_importance"] = model.importances()
     return out

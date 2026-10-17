@@ -23,7 +23,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "streamlit>=1.46"]
+dashboard = ["streamlit>=1.46"]
 
 [project.scripts]
 metalmind = "metalmind.cli:main"

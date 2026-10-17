@@ -124,6 +124,16 @@ def cmd_experiment(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    import os
+    import subprocess
+
+    app = Path(__file__).with_name("dashboard.py")
+    env = {**os.environ, "METALMIND_DATA_DIR": args.data_dir}
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", str(app), "--server.port", str(args.port),
+                            "--browser.gatherUsageStats", "false", "--client.toolbarMode", "minimal"], env=env)
+
+
 def cmd_evaluate(args) -> int:
     series, _, sentiment = _load(args)
     bt = evaluate.run(series, sentiment, min_train=args.min_train, refit_every=args.refit_every)
@@ -149,7 +159,7 @@ def cmd_forecast(args) -> int:
     resid = None
     try:
         bt = evaluate.run(series, sentiment, min_train=args.min_train, refit_every=args.refit_every)
-        model = "Random Forest: price + news" if sentiment is not None else "Random Forest: price only"
+        model = "Ridge regression: price + news" if sentiment is not None else "Ridge regression: price only"
         p = bt.predictions
         resid = float(np.std((p[model] - p["actual"]) / p["last_price"]))
         row = bt.summary.loc[model]
@@ -206,6 +216,10 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--no-news", action="store_true")
     e.set_defaults(func=cmd_experiment)
 
+    db = sub.add_parser("dashboard", help="open the interactive dashboard in your browser")
+    db.add_argument("--port", type=int, default=8501)
+    db.set_defaults(func=cmd_dashboard)
+
     for name, func, helptext in (
         ("evaluate", cmd_evaluate, "walk-forward backtest against baselines"),
         ("forecast", cmd_forecast, "forecast the next days and save a chart"),
@@ -213,8 +227,8 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=helptext)
         p.add_argument("--metal", required=True, choices=list(METALS))
         p.add_argument("--prices-csv", help="CSV with date and price columns (overrides --source)")
-        p.add_argument("--source", choices=["yahoo", "bankbazaar"], default="yahoo",
-                       help="yahoo: global benchmark x USD/INR, long history (default); bankbazaar: Indian rates, short")
+        p.add_argument("--source", choices=["yahoo", "cache", "bankbazaar"], default="yahoo",
+                       help="yahoo: global benchmark x USD/INR (default); cache: last saved download (offline)")
         p.add_argument("--start", default="2021-01-01", help="first date to download (Yahoo source)")
         p.add_argument("--no-news", action="store_true", help="price features only; skip news collection")
         p.add_argument("--min-train", type=int, default=60, help="days in the first training window")

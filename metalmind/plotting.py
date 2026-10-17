@@ -31,6 +31,15 @@ def _style(ax, title: str, ylabel: str) -> None:
 
 
 def plot_forecast(prices: pd.Series, fc: pd.DataFrame, metal: str, out: Path, history_days: int = 90) -> Path:
+    fig = forecast_figure(prices, fc, metal, history_days)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out
+
+
+def forecast_figure(prices: pd.Series, fc: pd.DataFrame, metal: str, history_days: int = 90):
+    """Observed prices, the forecast path and its error band, as a Matplotlib figure."""
     hist = prices.iloc[-history_days:]
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(hist.index, hist.values, color=HISTORY, linewidth=2, label="Observed price")
@@ -46,13 +55,36 @@ def plot_forecast(prices: pd.Series, fc: pd.DataFrame, metal: str, out: Path, hi
     ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=3, labelcolor=INK, borderaxespad=0.2)
     fig.autofmt_xdate()
     fig.tight_layout()
+    return fig
+
+
+def sentiment_figure(signals: pd.DataFrame, days: int = 120):
+    """Two stacked panels sharing the date axis: daily article count, and 7-day mean sentiment."""
+    d = signals.iloc[-days:]
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 4.6), sharex=True, gridspec_kw={"height_ratios": [1, 1.3]})
+    ax1.bar(d.index, d["news_count"], color=HISTORY, width=0.8)
+    _style(ax1, "News volume (articles per trading day)", "articles")
+    has = d["news_count"] > 0
+    sent = d["sentiment"].where(has).rolling(7, min_periods=1).mean()
+    ax2.axhline(0, color=MUTED, linewidth=1)
+    ax2.plot(d.index, sent, color=FORECAST, linewidth=2)
+    _style(ax2, "News sentiment, 7-day average (VADER, −1 to +1)", "sentiment")
+    ax2.set_title(ax2.get_title(loc="left"), loc="left", fontsize=13, color=INK, fontweight="bold", pad=8)
+    ax1.set_title(ax1.get_title(loc="left"), loc="left", fontsize=13, color=INK, fontweight="bold", pad=8)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return fig
+
+
+def plot_backtest(preds: pd.DataFrame, model: str, metal: str, out: Path) -> Path:
+    fig = backtest_figure(preds, model, metal)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
 
 
-def plot_backtest(preds: pd.DataFrame, model: str, metal: str, out: Path) -> Path:
+def backtest_figure(preds: pd.DataFrame, model: str, metal: str):
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(preds.index, preds["actual"], color=HISTORY, linewidth=2, label="Actual next-day price")
     ax.plot(preds.index, preds[model], color=FORECAST, linewidth=2, label=f"Predicted: {model}")
@@ -60,10 +92,7 @@ def plot_backtest(preds: pd.DataFrame, model: str, metal: str, out: Path) -> Pat
     ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=3, labelcolor=INK, borderaxespad=0.2)
     fig.autofmt_xdate()
     fig.tight_layout()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    return out
+    return fig
 
 
 FEATURE_SET_COLORS = {"price": "#2a78d6", "price+sentiment": "#eb6834", "price+sentiment+events": "#1baf7a"}

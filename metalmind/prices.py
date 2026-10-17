@@ -163,11 +163,29 @@ def get_price_history(
     """
     if csv:
         return load_csv(csv), f"CSV file {csv}"
+    if source == "cache":  # offline mode: the last successful Yahoo download
+        cache = data_dir / "prices" / f"{get_metal(metal).name}_yahoo.csv"
+        if not cache.exists():
+            raise PriceDataError(f"No saved prices at {cache}. Run once online first.")
+        series = load_csv(cache)
+        return series[series.index >= pd.Timestamp(start)], f"saved data (offline), last day {series.index[-1]:%d %b %Y}"
     if source == "yahoo":
         spec = get_metal(metal)
-        return fetch_yahoo(metal, start), f"Yahoo Finance: {spec.benchmark} x USD/INR"
+        cache = data_dir / "prices" / f"{spec.name}_yahoo.csv"
+        try:
+            series = fetch_yahoo(metal, start)
+        except PriceDataError as exc:
+            if cache.exists():  # offline: fall back to the last successful download
+                series = load_csv(cache)
+                series = series[series.index >= pd.Timestamp(start)]
+                log.warning("%s; using cached prices from %s", exc, cache)
+                return series, f"cached Yahoo Finance data (last day {series.index[-1]:%d %b %Y}, offline)"
+            raise
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        series.rename("price").to_frame().to_csv(cache, date_format="%Y-%m-%d")
+        return series, f"Yahoo Finance: {spec.benchmark} x USD/INR"
     if source != "bankbazaar":
-        raise ValueError(f"Unknown price source '{source}' (use yahoo or bankbazaar)")
+        raise ValueError(f"Unknown price source '{source}' (use yahoo, cache or bankbazaar)")
     try:
         scraped = fetch_bankbazaar(metal)
         merged = update_archive(metal, scraped, data_dir)
