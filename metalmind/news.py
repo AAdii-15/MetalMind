@@ -220,6 +220,9 @@ def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.
     """
     from metalmind.events import CATEGORIES, tag
 
+    # pandas 2/3 can store dates at different resolutions (s, ms, us, ns), and
+    # merge_asof refuses mixed ones, so put both sides on nanoseconds.
+    trading_days = pd.DatetimeIndex(trading_days).as_unit("ns")
     out = pd.DataFrame(index=trading_days)
     out["sentiment"] = 0.0
     out["news_count"] = 0
@@ -229,6 +232,7 @@ def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.
         return out
     days = pd.Series(trading_days.sort_values(), name="day")
     art = articles.copy()
+    art["date_ist"] = pd.to_datetime(art["date_ist"]).dt.as_unit("ns")
     art = art[(art["date_ist"] >= days.iloc[0]) & (art["date_ist"] <= days.iloc[-1])].sort_values("date_ist")
     if art.empty:
         return out

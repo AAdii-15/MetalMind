@@ -86,3 +86,25 @@ def test_backfill_queries_each_window_and_archives(tmp_path, monkeypatch):
     news.backfill("copper", date(2025, 3, 1), date(2025, 3, 22), window_days=7,
                   pause=0, data_dir=tmp_path, progress=None)
     assert urls == []
+
+
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+def test_alignment_works_for_any_datetime_resolution(tmp_path, unit):
+    """Regression: archive dates read from CSV and price dates from Yahoo can differ in resolution."""
+    from metalmind import features
+
+    days = pd.bdate_range("2025-03-03", periods=30)
+    arts = pd.DataFrame({"published_utc": [pd.Timestamp("2025-03-22", tz="UTC")], "date_ist": [pd.Timestamp("2025-03-22")],
+                         "title": ["Heavy rain floods copper mine"], "summary": [""], "link": ["x"], "source": ["t"],
+                         "sentiment": [-0.4]})
+    path = news.archive_path("copper", tmp_path)
+    path.parent.mkdir(parents=True)
+    arts.to_csv(path, index=False)
+    archive = news.load_archive("copper", tmp_path)
+
+    prices = pd.Series(range(100, 130), index=pd.DatetimeIndex(days).as_unit(unit), dtype=float)
+    signals = news.daily_signals(archive, prices.index)
+    assert signals.loc["2025-03-24", "news_count"] == 1 and signals.loc["2025-03-24", "ev_weather"] == 1  # Sat -> Mon
+    X, _ = features.build(prices, signals)
+    assert X.loc["2025-03-24", "log_news_count"] > 0   # the news survived the join back onto price dates
+    assert X.loc["2025-03-24", "ev_weather_5d"] > 0
