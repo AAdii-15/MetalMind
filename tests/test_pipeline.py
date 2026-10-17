@@ -33,11 +33,41 @@ def test_walk_forward_trains_only_on_the_past(prices):
             return self
 
         def predict(self, Xp):
-            assert all(Xp.index > m for m in seen[-1:])
+            assert (Xp.index > seen[-1]).all()       # every predicted day is after the training data
             return np.zeros(len(Xp))
 
     evaluate.walk_forward(X, y, prices, {"spy": Spy}, min_train=40, refit_every=7)
     assert seen
+
+
+def test_multi_day_horizon_leaves_a_gap(prices):
+    """With a 5-day target, training rows must end 5 days before the prediction day."""
+    h = 5
+    X, y = features.build(prices, horizon=h)
+    gaps = []
+
+    class Spy:
+        def fit(self, Xt, yt):
+            self.end = Xt.index.max()
+            return self
+
+        def predict(self, Xp):
+            pos = X.index.get_loc
+            gaps.append(pos(Xp.index.min()) - pos(self.end))
+            return np.zeros(len(Xp))
+
+    evaluate.walk_forward(X, y, prices, {"spy": Spy}, min_train=40, refit_every=10, horizon=h)
+    assert min(gaps) == h                    # target of the last training row is known on the first test day
+
+
+def test_diebold_mariano_detects_better_model():
+    rng = np.random.default_rng(1)
+    base = rng.normal(0, 2, 500)
+    better = rng.normal(0, 1, 500)
+    stat, p = evaluate.diebold_mariano(better, base)
+    assert stat < 0 and p < 0.01
+    stat, p = evaluate.diebold_mariano(base, base + rng.normal(0, 1e-9, 500))
+    assert p > 0.05
 
 
 def test_naive_metrics(prices):

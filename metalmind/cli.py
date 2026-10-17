@@ -112,6 +112,18 @@ def cmd_doctor(args) -> int:
     return 0 if all(r[1] == "OK" for r in rows if "legacy" not in r[0]) else 2
 
 
+def cmd_experiment(args) -> int:
+    from metalmind import experiment
+
+    out = experiment.run(
+        args.metal, start=args.start, horizons=tuple(args.horizons), min_train=args.min_train,
+        refit_every=args.refit_every, data_dir=Path(args.data_dir), results_dir=Path(args.results_dir),
+        use_news=not args.no_news,
+    )
+    print(f"\nDone. Results in {out}/  (open report.md first)")
+    return 0
+
+
 def cmd_evaluate(args) -> int:
     series, _, sentiment = _load(args)
     bt = evaluate.run(series, sentiment, min_train=args.min_train, refit_every=args.refit_every)
@@ -183,6 +195,16 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("collect-news", help="fetch today's headlines into the news archive")
     c.add_argument("--metal", nargs="*", choices=list(METALS), help="default: all metals")
     c.set_defaults(func=cmd_collect)
+
+    e = sub.add_parser("experiment", help="full research experiment: models x feature sets x horizons")
+    e.add_argument("--metal", nargs="+", default=["copper", "aluminium", "steel", "iron_ore"], choices=list(METALS))
+    e.add_argument("--start", default="2021-01-01")
+    e.add_argument("--horizons", nargs="+", type=int, default=[1, 5])
+    e.add_argument("--min-train", type=int, default=250, help="trading days in the first training window")
+    e.add_argument("--refit-every", type=int, default=20)
+    e.add_argument("--results-dir", default="results")
+    e.add_argument("--no-news", action="store_true")
+    e.set_defaults(func=cmd_experiment)
 
     for name, func, helptext in (
         ("evaluate", cmd_evaluate, "walk-forward backtest against baselines"),

@@ -211,27 +211,43 @@ def _flush(metal: str, frames: list[pd.DataFrame], data_dir: Path) -> None:
     merged.to_csv(path, index=False)
 
 
-def daily_sentiment(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.DataFrame:
-    """Aggregate article sentiment onto trading days.
+def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.DataFrame:
+    """Aggregate articles onto trading days: mean sentiment, article count and event counts.
 
     Each article is assigned to the first trading day on or after its IST date,
-    so weekend and holiday news counts towards the next session. Features for
+    so weekend and holiday news counts towards the next session. Signals for
     day t therefore only use news published up to day t.
     """
+    from metalmind.events import CATEGORIES, tag
+
     out = pd.DataFrame(index=trading_days)
     out["sentiment"] = 0.0
     out["news_count"] = 0
+    for cat in CATEGORIES:
+        out[f"ev_{cat}"] = 0
     if articles.empty:
         return out
     days = pd.Series(trading_days.sort_values(), name="day")
-    art = articles[["date_ist", "sentiment"]].sort_values("date_ist")
-    art = art[(art["date_ist"] >= days.iloc[0]) & (art["date_ist"] <= days.iloc[-1])]
+    art = articles.copy()
+    art = art[(art["date_ist"] >= days.iloc[0]) & (art["date_ist"] <= days.iloc[-1])].sort_values("date_ist")
     if art.empty:
         return out
+    text = art.get("title", pd.Series("", index=art.index)).fillna("") + ". " + \
+        art.get("summary", pd.Series("", index=art.index)).fillna("")
+    tags = text.map(tag)
+    for cat in CATEGORIES:
+        art[f"ev_{cat}"] = tags.map(lambda t, c=cat: int(c in t))
     mapped = pd.merge_asof(
         art, days.to_frame(), left_on="date_ist", right_on="day", direction="forward"
     ).dropna(subset=["day"])
-    agg = mapped.groupby("day")["sentiment"].agg(["mean", "count"])
-    out.loc[agg.index, "sentiment"] = agg["mean"].to_numpy()
-    out.loc[agg.index, "news_count"] = agg["count"].to_numpy()
+    g = mapped.groupby("day")
+    out.loc[g.size().index, "sentiment"] = g["sentiment"].mean().to_numpy()
+    out.loc[g.size().index, "news_count"] = g.size().to_numpy()
+    for cat in CATEGORIES:
+        out.loc[g.size().index, f"ev_{cat}"] = g[f"ev_{cat}"].sum().to_numpy()
     return out
+
+
+def daily_sentiment(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.DataFrame:
+    """Daily signals including mean sentiment and article count (alias kept for clarity)."""
+    return daily_signals(articles, trading_days)

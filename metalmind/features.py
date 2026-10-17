@@ -14,8 +14,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from metalmind.events import CATEGORIES
+
 PRICE_FEATURES = ["ret_1", "ret_2", "ret_3", "ret_5", "vol_5", "mom_5", "mom_10"]
-NEWS_FEATURES = ["sentiment", "sentiment_3d", "log_news_count"]
+SENTIMENT_FEATURES = ["sentiment", "sentiment_3d", "log_news_count"]
+EVENT_FEATURES = [f"ev_{c}_5d" for c in CATEGORIES]
+NEWS_FEATURES = SENTIMENT_FEATURES + EVENT_FEATURES
 
 
 def price_features(prices: pd.Series) -> pd.DataFrame:
@@ -32,20 +36,29 @@ def price_features(prices: pd.Series) -> pd.DataFrame:
     return f
 
 
-def news_features(sentiment: pd.DataFrame) -> pd.DataFrame:
-    f = pd.DataFrame(index=sentiment.index)
-    f["sentiment"] = sentiment["sentiment"].astype(float)
+def news_features(signals: pd.DataFrame) -> pd.DataFrame:
+    f = pd.DataFrame(index=signals.index)
+    f["sentiment"] = signals["sentiment"].astype(float)
     f["sentiment_3d"] = f["sentiment"].rolling(3, min_periods=1).mean()
-    f["log_news_count"] = np.log1p(sentiment["news_count"].astype(float))
+    f["log_news_count"] = np.log1p(signals["news_count"].astype(float))
+    for c in CATEGORIES:
+        col = f"ev_{c}"
+        counts = signals[col].astype(float) if col in signals else pd.Series(0.0, index=signals.index)
+        f[f"{col}_5d"] = np.log1p(counts.rolling(5, min_periods=1).sum())
     return f
 
 
-def build(prices: pd.Series, sentiment: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.Series]:
-    """Return (X, y) where y is the next-day return. The last row (unknown target) is dropped."""
+def build(
+    prices: pd.Series, sentiment: pd.DataFrame | None = None, horizon: int = 1
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Return (X, y) where y is the return over the next `horizon` trading days.
+
+    Rows whose target is not yet known (the last `horizon` days) are dropped.
+    """
     X = price_features(prices)
     if sentiment is not None:
         X = X.join(news_features(sentiment.reindex(prices.index).fillna(0)))
-    y = prices.shift(-1) / prices - 1
+    y = prices.shift(-horizon) / prices - 1
     y.name = "target_ret"
     data = X.join(y).dropna()
     return data[X.columns], data["target_ret"]

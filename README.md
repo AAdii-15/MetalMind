@@ -25,32 +25,31 @@ Small and medium manufacturers buy steel, zinc, aluminium and copper in bulk, of
 1. **Prices.** Load a daily price history from a CSV (recommended: an MCX/LME export or your purchase records), or scrape BankBazaar's recent price table. Scraped prices are merged into a local archive so the history grows with each run. If no real data is available the tool stops with a clear error; it never substitutes made-up prices.
 2. **News.** Headlines from Livemint, Economic Times and a metal-specific Google News search are filtered with word-boundary keyword rules, so "lead" does not match "leadership" and "iron" does not match "environment". Duplicates and syndicated copies are removed, and each article is scored with VADER. RSS feeds only show their latest items, so `collect-news` appends to an archive. Run it daily to build up history.
 3. **Alignment.** Each article is assigned to the first trading day on or after its publication date (IST), so weekend news counts towards Monday. Features for day *t* use only information available by day *t*. The target is the return from *t* to *t+1*.
-4. **Models.** A Random Forest predicts the **next-day return**, not the price level, because tree models cannot extrapolate outside the range of target values seen in training. It is compared with two baselines: *naive* (tomorrow = today) and *drift* (average daily return). The forest is trained twice, once with price features only and once with price and news features. This shows whether news sentiment adds information.
-5. **Evaluation.** An expanding-window walk-forward backtest: the model is trained only on the past and tested on the next day, then the window rolls forward. Reported metrics are MAE, RMSE and MAPE (₹/kg), the direction hit-rate, and the percentage MAE improvement over the naive baseline.
+4. **Models.** Models predict the **forward return**, not the price level, because tree models cannot extrapolate outside the range of target values seen in training. Ridge regression, Random Forest and Gradient Boosting are compared with two baselines: *naive* (tomorrow = today) and *drift* (average daily return). Each model is trained on price-only, price + sentiment, and price + sentiment + event features. This shows whether news adds information.
+5. **Evaluation.** An expanding-window walk-forward backtest: the model is trained only on the past and tested on the next day, then the window rolls forward. Reported metrics are MAE, RMSE and MAPE (₹/kg), the direction hit-rate, the percentage MAE improvement over the naive baseline, and a Diebold-Mariano test of whether that difference is statistically significant. For multi-day horizons, training stops `h` days before each test day so that no target overlaps the future.
 6. **Forecast.** The model is retrained on all history and rolled forward day by day. An approximate 95% band comes from the backtest errors and widens with the horizon.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/AAdii-15/MetalMind.git
+git clone -b polish https://github.com/AAdii-15/MetalMind.git
 cd MetalMind
-pip install -e ".[dev]"            # or: pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-metalmind collect-news             # run once a day (cron / Task Scheduler) to build the news archive
-metalmind evaluate --metal copper  # backtest: does the model beat the baselines?
-metalmind forecast --metal copper  # 10-day forecast, CSV and chart in outputs/
+metalmind doctor                                   # which data sources work from this machine?
+metalmind backfill-news --since 2021-01-01         # rebuild ~5 years of headlines (resumable)
+metalmind experiment                               # full study: 4 metals x 11 models x 2 horizons
+metalmind forecast --metal copper                  # 10-day forecast, CSV and chart in outputs/
+metalmind collect-news                             # run daily to keep the news archive current
 ```
 
-Using your own price history (recommended for a meaningful backtest):
+**Price sources.** The default is `--source yahoo`: international benchmark futures (COMEX copper, COMEX aluminium, US HRC steel, SGX iron ore 62% Fe) converted to ₹/kg with the daily USD/INR rate, giving 5+ years of daily history. These are global benchmarks in rupees, not Indian dealer prices, which add duty, freight and premiums but move with them. You can also pass your own history with `--prices-csv` (a date column and a price column; `2025-07-15` and `15/07/2025` formats both work). BankBazaar, the v1 source, no longer serves its price pages.
 
-```bash
-metalmind evaluate --metal zinc --prices-csv data/zinc_prices.csv
-metalmind forecast --metal zinc --prices-csv data/zinc_prices.csv --horizon 15
-```
+**The experiment.** `metalmind experiment` backtests, for each metal and for 1-day and 5-day horizons:
+two baselines (naive no-change, drift) and Ridge regression, Random Forest and Gradient Boosting, each trained on three feature sets: *price*, *price + sentiment*, *price + sentiment + events*. It also runs an event study that compares next-day returns after weather, supply, policy, demand, macro and inventory news with days without such news. Everything is written to `results/experiment_<timestamp>/`: `report.md` (all tables), `summary.csv`, `event_study.csv`, `feature_importance.csv`, `data_summary.csv`, per-day predictions and charts.
 
-The CSV needs a date column and a price column (`Date`/`Price`, `date`/`close`, …). Both `2025-07-15` and `15/07/2025` date formats are accepted.
-
-Useful options: `--no-news` (price features only), `--min-train 60` (size of the first training window), `--refit-every 5`, `--no-plot`. Run `metalmind <command> --help` for all options. `python -m metalmind …` works without installing the command.
+Other options: `--no-news` (price features only), `--min-train`, `--refit-every`, `--horizons 1 5 10`. Run `metalmind <command> --help` for everything.
 
 ## Example output
 
@@ -72,10 +71,12 @@ A negative *MAE vs naive* means the model beats the no-change baseline. Day-to-d
 metalmind/
   config.py      metals, keyword rules, news feeds
   prices.py      CSV loader, BankBazaar scraper, price archive
-  news.py        RSS collection, de-duplication, VADER sentiment, trading-day alignment
+  news.py        RSS collection, Google News backfill, de-duplication, VADER sentiment, trading-day alignment
+  events.py      rule-based event tags (weather, supply, policy, demand, macro, inventory)
   features.py    leakage-free features and next-day return target
-  models.py      naive and drift baselines, Random Forest
-  evaluate.py    walk-forward backtest and metrics
+  models.py      naive and drift baselines, Ridge, Random Forest, Gradient Boosting
+  evaluate.py    walk-forward backtest, metrics, Diebold-Mariano test
+  experiment.py  the full research grid, event study and report
   forecast.py    recursive forecast with error band
   plotting.py    forecast and backtest charts
   cli.py         command-line interface
@@ -93,7 +94,8 @@ The tests check keyword matching, de-duplication, weekend-news alignment and the
 
 ## Limitations
 
-- BankBazaar shows a short recent window and its page layout may change; for serious backtests supply a longer CSV history.
+- Yahoo prices are international benchmarks converted to rupees, not Indian dealer prices.
+- Google News search results are a sample of coverage, not every article ever published.
 - VADER is a general-purpose sentiment model. Commodity language can mislead it: "prices fall" reads as negative, but it is good news for a buyer. A finance-tuned model such as FinBERT is a natural next step.
 - Future news is unknown, so the multi-day forecast carries the latest sentiment forward, and uncertainty grows quickly with the horizon.
 - Forecasts are research estimates, not guaranteed prices or investment advice.
