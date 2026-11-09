@@ -103,8 +103,9 @@ def run(
     use_news: bool = True,
     prices_csv: dict[str, str] | None = None,
     progress=print,
+    sentiment: str = "vader",
 ) -> Path:
-    run_id = datetime.now().strftime("%Y%m%d_%H%M")
+    run_id = datetime.now().strftime("%Y%m%d_%H%M") + ("" if sentiment == "vader" else f"_{sentiment}")
     out = results_dir / f"experiment_{run_id}"
     out.mkdir(parents=True, exist_ok=True)
     summaries, studies, data_rows, importances = [], [], [], []
@@ -119,7 +120,7 @@ def run(
         signals = None
         archive = news.load_archive(metal, data_dir) if use_news else pd.DataFrame()
         if use_news and not archive.empty:
-            signals = news.daily_signals(archive, series.index)
+            signals = news.daily_signals(archive, series.index, news.SENTIMENT_COLUMNS[sentiment])
         n_art = int(signals["news_count"].sum()) if signals is not None else 0
         data_rows.append({
             "metal": spec.name, "price source": source, "first day": f"{series.index[0]:%Y-%m-%d}",
@@ -169,7 +170,7 @@ def run(
     plotting.plot_skill(summary, horizons[0], out / "skill_vs_naive.png")
 
     config = {"metals": metals, "start": start, "horizons": list(horizons), "min_train": min_train,
-              "refit_every": refit_every, "use_news": use_news, "run_id": run_id}
+              "refit_every": refit_every, "use_news": use_news, "sentiment": sentiment, "run_id": run_id}
     (out / "config.json").write_text(json.dumps(config, indent=2))
     _write_report(out, config, data_summary, summary, study, imp_df)
     return out

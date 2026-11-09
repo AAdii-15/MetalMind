@@ -25,6 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7", "streamlit>=1.46"]
 dashboard = ["streamlit>=1.46"]
+finbert = ["transformers>=4.40", "torch>=2.2"]
 
 [project.scripts]
 metalmind = "metalmind.cli:main"

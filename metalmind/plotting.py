@@ -141,3 +141,57 @@ def plot_skill(summary: pd.DataFrame, horizon: int, out: Path, ncols: int | None
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
+
+
+def plot_volatility(preds: pd.DataFrame, model: str, metal: str, out: Path) -> Path:
+    """Actual next-week volatility vs the persistence baseline and the best model."""
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+    ax.plot(preds.index, preds["actual"], color=HISTORY, linewidth=2, label="Actual next-5-day volatility")
+    ax.plot(preds.index, preds["Persistence (last 20-day volatility)"], color=MUTED, linewidth=1.5,
+            linestyle="--", label="Persistence (last 20 days)")
+    ax.plot(preds.index, preds[model], color=FORECAST, linewidth=2, label=f"{model}")
+    _style(ax, f"{metal.replace('_', ' ').title()}: next-week volatility forecast", "daily volatility (%)")
+    ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=3, labelcolor=INK, borderaxespad=0.2,
+              fontsize=9)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out
+
+
+def plot_coverage(coverage: pd.DataFrame, out: Path) -> Path:
+    """95% band coverage by sizing method, one group per metal, with the 95% target line."""
+    labels = {"Long-run average volatility": "Long-run average", "Persistence (last 20-day volatility)": "Recent 20-day volatility"}
+    labels["Best model, calibrated multiplier"] = "Best model, calibrated"
+    colors = {"Long-run average": MUTED, "Recent 20-day volatility": HISTORY, "Best model": FORECAST,
+              "Best model, calibrated": "#1baf7a"}
+    df = coverage.copy()
+    df["method"] = [labels.get(i, "Best model") for i in df.index]
+    metals = list(dict.fromkeys(df["metal"]))
+    methods = [m for m in colors if m in set(df["method"])]
+    fig, ax = plt.subplots(figsize=(10, 4.6))
+    width = 0.8 / len(methods)
+    for j, m in enumerate(methods):
+        vals = [float(df[(df["metal"] == mt) & (df["method"] == m)]["Coverage (%)"].iloc[0]) for mt in metals]
+        xs = [i + (j - (len(methods) - 1) / 2) * width for i in range(len(metals))]
+        bars = ax.bar(xs, vals, width=width * 0.92, color=colors[m], label=m)
+        for b, v in zip(bars, vals):
+            ax.annotate(f"{v:.0f}%", (b.get_x() + b.get_width() / 2, v), xytext=(0, 3), textcoords="offset points",
+                        ha="center", fontsize=8, color=INK)
+    ax.axhline(95, color=INK, linewidth=1, linestyle=":")
+    ax.annotate("95% target", (len(metals) - 0.5, 95), xytext=(0, 4), textcoords="offset points", ha="right",
+                fontsize=9, color=INK)
+    ax.set_xticks(range(len(metals)))
+    ax.set_xticklabels([m.replace("_", " ").title() for m in metals], color=INK)
+    lo = max(0, min(80, float(df["Coverage (%)"].min()) - 5))
+    ax.set_ylim(lo, 101)
+    _style(ax, "How often the real 5-day price move stayed inside the 95% band", "coverage (%)")
+    ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=4, labelcolor=INK, borderaxespad=0.2,
+              fontsize=9)
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out

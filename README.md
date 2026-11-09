@@ -42,10 +42,17 @@ metalmind backfill-news --since 2021-01-01         # rebuild ~5 years of headlin
 metalmind experiment                               # full study: 4 metals x 11 models x 2 horizons
 metalmind forecast --metal copper                  # 10-day forecast, CSV and chart in outputs/
 metalmind dashboard                                # interactive dashboard in the browser
+metalmind volatility                               # phase 2: forecast how MUCH prices will move (5 days)
+metalmind rescore-sentiment                        # optional: score headlines with FinBERT (pip install -e ".[finbert]")
+metalmind experiment --sentiment finbert           # rerun the study with financial sentiment
 metalmind collect-news                             # run daily to keep the news archive current
 ```
 
 **Dashboard.** `metalmind dashboard` opens a browser app. You pick a metal and see four things: the latest benchmark price in ₹/kg; a forecast with its backtested 95% error band; the latest headlines with sentiment scores and event tags; and a walk-forward comparison of every model against the naive baseline. If `metalmind experiment` has been run, it also shows the full research findings. *Offline mode* in the sidebar uses the last saved price download, so a demo works without internet.
+
+**Phase 2: volatility.** `metalmind volatility` asks whether models, with or without news, can forecast realised volatility over the next 5 trading days better than "recent volatility continues" (persistence). It also checks how often a 95% price band sized by each method actually contains the real 5-day move, including a band whose multiplier is calibrated on past misses. This is the quantity a procurement team needs for tender price-escalation margins. Results are saved to `results/volatility_<timestamp>/`.
+
+**FinBERT.** VADER is a general-purpose sentiment model and misreads market language (it scores "Copper prices rocket 11% higher" as strongly negative). `metalmind rescore-sentiment` adds FinBERT scores (Araci, 2019), a BERT model fine-tuned on financial news, to the archive. `--sentiment finbert` on `experiment` and `volatility` then uses them.
 
 **Price sources.** The default is `--source yahoo`: international benchmark futures (COMEX copper, COMEX aluminium, US HRC steel, SGX iron ore 62% Fe) converted to ₹/kg with the daily USD/INR rate, giving 5+ years of daily history. These are global benchmarks in rupees, not Indian dealer prices, which add duty, freight and premiums but move with them. You can also pass your own history with `--prices-csv` (a date column and a price column; `2025-07-15` and `15/07/2025` formats both work). BankBazaar, the v1 source, no longer serves its price pages.
 
@@ -80,6 +87,7 @@ metalmind/
   models.py      naive and drift baselines, Ridge, Random Forest, Gradient Boosting
   evaluate.py    walk-forward backtest, metrics, Diebold-Mariano test
   experiment.py  the full research grid, event study and report
+  volatility.py  phase 2: volatility forecasting and 95% band coverage
   forecast.py    recursive forecast with error band
   plotting.py    forecast and backtest charts
   dashboard.py   Streamlit dashboard

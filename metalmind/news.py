@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import feedparser
+import numpy as np
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -211,7 +212,7 @@ def _flush(metal: str, frames: list[pd.DataFrame], data_dir: Path) -> None:
     merged.to_csv(path, index=False)
 
 
-def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.DataFrame:
+def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex, sentiment_col: str = "sentiment") -> pd.DataFrame:
     """Aggregate articles onto trading days: mean sentiment, article count and event counts.
 
     Each article is assigned to the first trading day on or after its IST date,
@@ -232,6 +233,10 @@ def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.
         return out
     days = pd.Series(trading_days.sort_values(), name="day")
     art = articles.copy()
+    if sentiment_col != "sentiment":
+        if sentiment_col not in art:
+            raise ValueError(f"No '{sentiment_col}' scores in the news archive. Run: metalmind rescore-sentiment")
+        art["sentiment"] = art[sentiment_col]
     art["date_ist"] = pd.to_datetime(art["date_ist"]).dt.as_unit("ns")
     art = art[(art["date_ist"] >= days.iloc[0]) & (art["date_ist"] <= days.iloc[-1])].sort_values("date_ist")
     if art.empty:
@@ -250,6 +255,52 @@ def daily_signals(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.
     for cat in CATEGORIES:
         out.loc[g.size().index, f"ev_{cat}"] = g[f"ev_{cat}"].sum().to_numpy()
     return out
+
+
+FINBERT = "ProsusAI/finbert"
+SENTIMENT_COLUMNS = {"vader": "sentiment", "finbert": "sentiment_finbert"}
+
+
+def finbert_scorer(model: str = FINBERT, batch_size: int = 32):
+    """Return a function texts -> scores in [-1, 1] (P(positive) - P(negative)) using FinBERT.
+
+    FinBERT is BERT fine-tuned on financial news (Araci, 2019). Needs: pip install "metalmind[finbert]".
+    """
+    try:
+        from transformers import pipeline
+    except ImportError as exc:
+        raise RuntimeError('FinBERT needs extra packages: pip install -e ".[finbert]"') from exc
+    clf = pipeline("text-classification", model=model, top_k=None, truncation=True, max_length=128)
+
+    def score_batch(texts: list[str]) -> list[float]:
+        out = clf(texts, batch_size=batch_size)
+        scores = []
+        for labels in out:
+            d = {x["label"].lower(): x["score"] for x in labels}
+            scores.append(float(d.get("positive", 0.0) - d.get("negative", 0.0)))
+        return scores
+
+    return score_batch
+
+
+def rescore(metal: str, data_dir: Path = DATA_DIR, scorer=None, chunk: int = 512, progress=print) -> int:
+    """Add FinBERT scores (column sentiment_finbert) to every archived article that lacks one."""
+    archive = load_archive(metal, data_dir)
+    if archive.empty:
+        return 0
+    if "sentiment_finbert" not in archive:
+        archive["sentiment_finbert"] = np.nan
+    todo = archive.index[archive["sentiment_finbert"].isna()]
+    scorer = scorer or finbert_scorer()
+    texts = (archive.loc[todo, "title"].fillna("").str.replace(r"\s+-\s+[^-]+$", "", regex=True)).tolist()
+    path = archive_path(metal, data_dir)
+    for start in range(0, len(todo), chunk):
+        idx = todo[start:start + chunk]
+        archive.loc[idx, "sentiment_finbert"] = scorer(texts[start:start + chunk])
+        archive.to_csv(path, index=False)                    # save as we go, so a stop loses little
+        if progress:
+            progress(f"  {metal}: {min(start + chunk, len(todo))}/{len(todo)} headlines scored")
+    return len(todo)
 
 
 def daily_sentiment(articles: pd.DataFrame, trading_days: pd.DatetimeIndex) -> pd.DataFrame:

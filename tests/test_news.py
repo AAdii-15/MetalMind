@@ -108,3 +108,30 @@ def test_alignment_works_for_any_datetime_resolution(tmp_path, unit):
     X, _ = features.build(prices, signals)
     assert X.loc["2025-03-24", "log_news_count"] > 0   # the news survived the join back onto price dates
     assert X.loc["2025-03-24", "ev_weather_5d"] > 0
+
+
+def test_finbert_rescore_and_switch(tmp_path):
+    """Rescoring adds a sentiment_finbert column; daily_signals can use it instead of VADER."""
+    days = pd.bdate_range("2025-03-03", periods=10)
+    arts = pd.DataFrame({"published_utc": [pd.Timestamp(d, tz="UTC") for d in days[:4]], "date_ist": days[:4],
+                         "title": ["Copper prices rocket 11% higher - Kitco", "Copper slips", "Copper flat", "Copper up"],
+                         "summary": [""] * 4, "link": list("abcd"), "source": ["t"] * 4, "sentiment": [-0.93, 0, 0, 0.2]})
+    path = news.archive_path("copper", tmp_path)
+    path.parent.mkdir(parents=True)
+    arts.to_csv(path, index=False)
+    seen = []
+
+    def fake_scorer(texts):
+        seen.extend(texts)
+        return [0.9 if "rocket" in t else -0.1 for t in texts]
+
+    assert news.rescore("copper", tmp_path, scorer=fake_scorer, progress=None) == 4
+    assert seen[0] == "Copper prices rocket 11% higher"            # publisher suffix stripped
+    assert news.rescore("copper", tmp_path, scorer=fake_scorer, progress=None) == 0   # nothing left to score
+    archive = news.load_archive("copper", tmp_path)
+    vader = news.daily_signals(archive, days)
+    finbert = news.daily_signals(archive, days, sentiment_col="sentiment_finbert")
+    assert vader.loc[days[0], "sentiment"] == pytest.approx(-0.93)
+    assert finbert.loc[days[0], "sentiment"] == pytest.approx(0.9)
+    with pytest.raises(ValueError, match="rescore-sentiment"):
+        news.daily_signals(arts, days, sentiment_col="sentiment_finbert")

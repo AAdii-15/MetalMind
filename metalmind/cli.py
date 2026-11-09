@@ -118,8 +118,26 @@ def cmd_experiment(args) -> int:
     out = experiment.run(
         args.metal, start=args.start, horizons=tuple(args.horizons), min_train=args.min_train,
         refit_every=args.refit_every, data_dir=Path(args.data_dir), results_dir=Path(args.results_dir),
-        use_news=not args.no_news,
+        use_news=not args.no_news, sentiment=args.sentiment,
     )
+    print(f"\nDone. Results in {out}/  (open report.md first)")
+    return 0
+
+
+def cmd_rescore(args) -> int:
+    scorer = news.finbert_scorer()
+    for metal in args.metal:
+        n = news.rescore(metal, Path(args.data_dir), scorer=scorer)
+        print(f"{metal:<10} {n} headlines scored with FinBERT")
+    return 0
+
+
+def cmd_volatility(args) -> int:
+    from metalmind import volatility
+
+    out = volatility.run(args.metal, start=args.start, horizon=args.horizon, min_train=args.min_train,
+                         refit_every=args.refit_every, data_dir=Path(args.data_dir),
+                         results_dir=Path(args.results_dir), source=args.source, sentiment=args.sentiment)
     print(f"\nDone. Results in {out}/  (open report.md first)")
     return 0
 
@@ -214,7 +232,23 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--refit-every", type=int, default=20)
     e.add_argument("--results-dir", default="results")
     e.add_argument("--no-news", action="store_true")
+    e.add_argument("--sentiment", choices=["vader", "finbert"], default="vader")
     e.set_defaults(func=cmd_experiment)
+
+    rs = sub.add_parser("rescore-sentiment", help="score archived headlines with FinBERT (financial sentiment)")
+    rs.add_argument("--metal", nargs="+", default=["copper", "aluminium", "steel", "iron_ore"], choices=list(METALS))
+    rs.set_defaults(func=cmd_rescore)
+
+    v = sub.add_parser("volatility", help="phase 2: can news predict how much prices will move?")
+    v.add_argument("--metal", nargs="+", default=["copper", "aluminium", "steel", "iron_ore"], choices=list(METALS))
+    v.add_argument("--start", default="2021-01-01")
+    v.add_argument("--horizon", type=int, default=5, help="trading days ahead")
+    v.add_argument("--min-train", type=int, default=250)
+    v.add_argument("--refit-every", type=int, default=20)
+    v.add_argument("--results-dir", default="results")
+    v.add_argument("--source", choices=["yahoo", "cache"], default="yahoo")
+    v.add_argument("--sentiment", choices=["vader", "finbert"], default="vader")
+    v.set_defaults(func=cmd_volatility)
 
     db = sub.add_parser("dashboard", help="open the interactive dashboard in your browser")
     db.add_argument("--port", type=int, default=8501)
